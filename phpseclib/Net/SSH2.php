@@ -716,6 +716,21 @@ class SSH2
     protected $curTimeout;
 
     /**
+     * Keep Alive Interval
+     *
+     * @see self::setKeepAlive()
+     * @access private
+     */
+    protected $keepAlive;
+
+    /**
+     * Last keepalive send time
+     *
+     * @access private
+     */
+    protected $lastKeepAlive;
+
+    /**
      * Real-time log file pointer
      *
      * @see self::_append_log()
@@ -2538,6 +2553,19 @@ class SSH2
     }
 
     /**
+     * Set Keep Alive
+     *
+     * Sends an SSH2_MSG_IGNORE message every x seconds, if x is a positive non-zero number.
+     *
+     * @param mixed $keepAlive
+     * @access public
+     */
+    function setKeepAlive($keepAlive)
+    {
+        $this->keepAlive = $keepAlive;
+    }
+
+    /**
      * Get the output from stdError
      *
      * @access public
@@ -3613,7 +3641,21 @@ class SSH2
                 $write = $except = null;
 
                 if (!$this->curTimeout) {
-                    stream_select($read, $write, $except, null);
+
+                    if($this->keepAlive <= 0)
+                    {
+                        stream_select($read, $write, $except, null);
+                    }
+                    else{
+                        $keepAliveSend = $this->sendKeepAlive();
+//                        if($keepAliveSend)
+//                        {
+//                            continue;
+//                        }
+                    }
+
+
+
                 } else {
                     if ($this->curTimeout < 0) {
                         $this->is_timeout = true;
@@ -3624,6 +3666,18 @@ class SSH2
                     $write = $except = null;
 
                     $start = microtime(true);
+
+                    if ($this->keepAlive > 0 && $this->keepAlive < $this->curTimeout) {
+
+
+                        $keepAliveSend = $this->sendKeepAlive();
+//                        if($keepAliveSend)
+//                        {
+//                            continue;
+//                        }
+                    }
+
+
                     $sec = floor($this->curTimeout);
                     $usec = 1000000 * ($this->curTimeout - $sec);
                     if (!stream_select($read, $write, $except, $sec, $usec)) {
@@ -3814,6 +3868,31 @@ class SSH2
                     throw new \RuntimeException('Error reading channel data');
             }
         }
+    }
+    /**
+     * Sends Keep alive package if interval has passed
+     *
+     *
+     * @return bool
+     * @access private
+     */
+    private function sendKeepAlive()
+    {
+        if(\is_null($this->lastKeepAlive))
+        {
+            $this->lastKeepAlive = \microtime(true);
+        }
+        else{
+            $elapsed = microtime(true) - $this->lastKeepAlive;
+            if($elapsed >= $this->keepAlive)
+            {
+                echo 'Send ignore 1'.\PHP_EOL;
+                $this->send_binary_packet(pack('CN', NET_SSH2_MSG_IGNORE, 0));
+                $this->lastKeepAlive = \microtime(true);
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
